@@ -27,3 +27,35 @@ conda create -n hw2_reconstruct python=3.9
 conda activate hw2_reconstruct
 pip install numpy==1.26.4 open3d scipy opencv-python pillow
 ```
+
+## Phase 1: Data Collection
+
+Use the Habitat environment to collect RGB-D images and ground truth poses.
+
+### Command
+
+```bash
+# Example: Navigating and saving data for the first floor
+python load.py
+```
+
+##Phase 2: 3D Reconstruction
+Switch to the reconstruction environment before running the following commands.
+⚠️ Requirements:
+open3d
+numpy==1.26.4
+### Standard Version (Open3D ICP)
+Use Open3D's built-in ICP algorithm for reconstruction.
+```bash
+# Reconstruct Floor 1
+python reconstruct.py -f 1 -v open3d
+
+# Reconstruct Floor 2
+python reconstruct.py -f 2 -v open3d
+```
+### Bonus Version (Custom ICP Implementation)
+If you have implemented your own ICP algorithm, use the my_icp option.
+```bash
+# Run reconstruction with your own ICP
+python reconstruct.py -f 1 -v my_icp
+```
