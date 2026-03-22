@@ -88,6 +88,10 @@ agent_state = habitat_sim.AgentState()
 agent_state.position = np.array([0.0, 0.0, 0.0])
 agent.set_state(agent_state)
 
+actual_state = agent.get_state()
+# print(f"Agent snapped to navmesh at y = {actual_state.position[1]}")
+# print(f"Camera will be at y = {actual_state.position[1] + sim_settings['sensor_height']}")
+
 # =============================
 # Action space and keys
 # =============================
@@ -97,6 +101,7 @@ print("Discrete action space: ", action_names)
 FORWARD_KEY = "w"
 LEFT_KEY = "a"
 RIGHT_KEY = "d"
+CHANGE_FLOOR = "c"
 FINISH = "f"
 
 print("#############################")
@@ -113,19 +118,36 @@ print("#############################")
 def navigateAndSee(action=""):
     if action in action_names:
         observations = sim.step(action)
-        
-        cv2.imshow("RGB", transform_rgb_bgr(observations["color_sensor"]))
-        cv2.imshow("Depth", transform_depth(observations["depth_sensor"]))
-        cv2.imshow("Semantic", transform_semantic(observations["semantic_sensor"]))
-        
-        # Print camera pose
-        agent_state = agent.get_state()
-        sensor_state = agent_state.sensor_states["color_sensor"]
-        pos = sensor_state.position
-        rot = sensor_state.rotation
-        print("camera pose: x y z rw rx ry rz")
-        print(pos[0], pos[1], pos[2], rot.w, rot.x, rot.y, rot.z)
 
+    else:
+        # toggle floor / height (note: y=1.0 may not be a real "floor")
+        agent_state = agent.get_state()
+        current_pos = agent_state.position.copy()
+        if current_pos[1] < 0.0:
+            current_pos[1] = 1.42  # Use sensor_height for consistency
+        else:
+            current_pos[1] = -1.37  # Or another valid floor height
+        
+        agent_state.position = current_pos
+        agent.set_state(agent_state, reset_sensors=True)
+
+        # IMPORTANT: fetch fresh observations after set_state
+        observations = sim.get_sensor_observations()
+
+    cv2.imshow("RGB", transform_rgb_bgr(observations["color_sensor"]))
+    cv2.imshow("Depth", transform_depth(observations["depth_sensor"]))
+    cv2.imshow("Semantic", transform_semantic(observations["semantic_sensor"]))
+    cv2.waitKey(1)
+
+    # Print camera pose (use current agent state)
+    agent_state = agent.get_state()
+    sensor_state = agent_state.sensor_states["color_sensor"]
+    pos = sensor_state.position
+    rot = sensor_state.rotation
+    print("camera pose: x y z rw rx ry rz")
+    print(pos[0], pos[1], pos[2], rot.w, rot.x, rot.y, rot.z)
+    print("agent_position: ", agent_state.position)
+    
 # =============================
 # Main loop
 # =============================
@@ -146,6 +168,11 @@ while True:
         action = "turn_right"
         navigateAndSee(action)
         print("action: RIGHT")
+    elif keystroke == ord(CHANGE_FLOOR):
+        action = "change_floor"
+        navigateAndSee(action)
+        print("action: change_floor")
+        # navigateAndSee("")  # 立刻刷新顯示（可選）
     elif keystroke == ord(FINISH):
         print("action: FINISH")
         break
