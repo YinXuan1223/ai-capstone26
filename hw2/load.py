@@ -13,7 +13,7 @@ import shutil
 # This is the scene we are going to load.
 # support a variety of mesh formats, such as .glb, .gltf, .obj, .ply
 ### put your scene path ###
-test_scene = "replica_v1/apartment_0/habitat/mesh_semantic.ply"
+test_scene = "../hw0/replica_v1/apartment_0/habitat/mesh_semantic.ply"
 
 sim_settings = {
     "scene": test_scene,  # Scene path

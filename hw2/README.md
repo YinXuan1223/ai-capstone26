@@ -2,10 +2,9 @@
 
 NYCU AI Capstone HW2
 
-Spec: [Google Docs](https://docs.google.com/document/d/1WmlwZPoDuV3adccKl7DBUhWRT2XjSQB81wIH2tBfEIM/edit?pli=1&tab=t.0)
 
 ## 1. Preparation
-The replica dataset, you can use the same one in `hw0`.
+The replica dataset, use the same one in `hw0`.
 
 ### 2. Environment Setup (Critical)
 To avoid **Segmentation Faults** and library conflicts 
@@ -25,7 +24,7 @@ Use the Habitat environment to collect RGB-D images and ground truth poses.
 python load.py
 ```
 
-##Phase 2: 3D Reconstruction
+## Phase 2: 3D Reconstruction
 Switch to the reconstruction environment before running the following commands.
 ⚠️ Requirements:
 open3d
@@ -34,14 +33,4 @@ numpy==1.26.4
 Use Open3D's built-in ICP algorithm for reconstruction.
 ```bash
 # Reconstruct Floor 1
-python reconstruct.py -f 1 -v open3d
-
-# Reconstruct Floor 2
-python reconstruct.py -f 2 -v open3d
-```
-### Bonus Version (Custom ICP Implementation)
-If you have implemented your own ICP algorithm, use the my_icp option.
-```bash
-# Run reconstruction with your own ICP
-python reconstruct.py -f 1 -v my_icp
-```
+python reconstruct.py 
