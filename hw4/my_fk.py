@@ -73,9 +73,10 @@ def get_pose_from_matrix(matrix, pose_size : int = 7) -> np.ndarray:
         else:
             rot = R.from_matrix(rot_mat).as_quat()
     except ValueError:
-        # 如果 det<=0，修正成最近正交矩陣
-        U, _, Vt = np.linalg.svd(rot_mat)
-        rot_mat_fixed = U @ Vt
+        # 如果 det<=0，修正成最近正交矩陣（保證 det = +1）
+        U, _s, Vt = np.linalg.svd(rot_mat)
+        d_sign = np.linalg.det(U @ Vt)
+        rot_mat_fixed = U @ np.diag([1.0, 1.0, d_sign]) @ Vt
         if pose_size == 6:
             rot = R.from_matrix(rot_mat_fixed).as_rotvec()
         else:
@@ -313,54 +314,51 @@ def your_fk(DH_params : dict, q, base_pos) -> np.ndarray:
 
 
 def score_fk(student_fk_function, headless=False, visualize_pose=False):
-    """Run official FK/Jacobian scoring for a student function.
+    """Run FK/Jacobian scoring without Isaac Sim (pure Python, local test mode).
 
     Parameters
     ----------
     student_fk_function : Callable
-        Student FK function with signature compatible with
+        Student FK function compatible with
         ``student_fk_function(DH_params, q, base_pos)`` returning
         ``(pose_7d, jacobian_6x6)``.
     headless : bool, default=False
-        Whether Isaac Sim runs without GUI.
+        Ignored (kept for API compatibility).
     visualize_pose : bool, default=False
-        Whether to draw predicted/ground-truth axes and trajectories.
+        Ignored (kept for API compatibility).
 
     Returns
     -------
     dict
         Score summary including per-file and total scores.
-
-    Notes
-    -----
-    The simulator and debug-draw behavior is intentionally kept the same as
-    the original main-loop logic.
     """
+    # ------------------------------------------------------------------ #
+    # Isaac Sim 相關程式碼已全部注解掉，改為純 Python 本地評分            #
+    # ------------------------------------------------------------------ #
+    # try:
+    #     from isaacsim import SimulationApp
+    # except ImportError as exc:
+    #     raise ImportError("Isaac Sim python modules are not available.") from exc
+    #
+    # sim_app = SimulationApp({"headless": bool(headless), "width": 1280, "height": 720})
+    #
+    # try:
+    #     from isaacsim.core.api import World
+    #     world = World(stage_units_in_meters=1.0)
+    #     world.scene.add_default_ground_plane()
+    #     world.reset()
+    #
+    #     debug_draw = _acquire_isaac_debug_draw_interface()
+    #     if debug_draw is not None:
+    #         debug_draw.clear_lines()
+    #         debug_draw.clear_points()
+    #     elif visualize_pose:
+    #         print("[Warning] isaacsim.util.debug_draw unavailable; skipping.")
+    #
+    #     for _ in range(10):
+    #         world.step(render=not headless)
+
     try:
-        from isaacsim import SimulationApp
-    except ImportError as exc:
-        raise ImportError("Isaac Sim python modules are not available in current environment.") from exc
-
-    sim_app = SimulationApp({"headless": bool(headless), "width": 1280, "height": 720})
-
-    try:
-        from isaacsim.core.api import World
-
-        world = World(stage_units_in_meters=1.0)
-        world.scene.add_default_ground_plane()
-        world.reset()  # Ensure physics and scene are initialized.
-
-        debug_draw = _acquire_isaac_debug_draw_interface()
-        if debug_draw is not None:
-            debug_draw.clear_lines()
-            debug_draw.clear_points()
-        elif visualize_pose:
-            print("[Warning] isaacsim.util.debug_draw is unavailable; skipping pose visualization.")
-
-        # Warm-up stepping to stabilize world state.
-        for _ in range(10):
-            world.step(render=not headless)
-
         testcase_files = [
             'test_case/fk_test_case_easy.json',
             'test_case/fk_test_case_medium.json',
@@ -371,60 +369,42 @@ def score_fk(student_fk_function, headless=False, visualize_pose=False):
         base_pos = np.asarray([-0.2, 0.13, 0.6], dtype=np.float64)
 
         testcase_file_num = len(testcase_files)
-        fk_score = [FK_SCORE_MAX / testcase_file_num for _ in range(testcase_file_num)]
-        fk_error_cnt = [0 for _ in range(testcase_file_num)]
-        jacobian_score = [JACOBIAN_SCORE_MAX / testcase_file_num for _ in range(testcase_file_num)]
-        jacobian_error_cnt = [0 for _ in range(testcase_file_num)]
+        fk_score       = [FK_SCORE_MAX       / testcase_file_num] * testcase_file_num
+        fk_error_cnt   = [0]                                      * testcase_file_num
+        jacobian_score = [JACOBIAN_SCORE_MAX  / testcase_file_num] * testcase_file_num
+        jacobian_error_cnt = [0]                                   * testcase_file_num
 
         print("============================ Task 1 : Forward Kinematic ============================\n")
+
         for file_id, testcase_file in enumerate(testcase_files):
+            if not os.path.exists(testcase_file):
+                print(f"[SKIP] {testcase_file} not found\n")
+                continue
 
             with open(testcase_file, 'r') as f_in:
                 fk_dict = json.load(f_in)
 
             test_case_name = os.path.split(testcase_file)[-1]
-
             joint_poses = fk_dict['joint_poses']
-            poses = fk_dict['poses']
-            jacobians = fk_dict['jacobian']
-
-            cases_num = len(fk_dict['joint_poses'])
-            penalty = (TASK1_SCORE_MAX / testcase_file_num) / (0.3 * cases_num)
-
-            pred_traj = []
-            gt_traj = []
+            poses       = fk_dict['poses']
+            jacobians   = fk_dict['jacobian']
+            cases_num   = len(joint_poses)
+            penalty     = (TASK1_SCORE_MAX / testcase_file_num) / (0.3 * cases_num)
 
             for i in range(cases_num):
                 your_pose, your_jacobian = student_fk_function(dh_params, joint_poses[i], base_pos)
                 gt_pose = poses[i]
 
-                if visualize_pose and debug_draw is not None:
-                    pred_traj.append(tuple(np.asarray(your_pose[:3], dtype=np.float64)))
-                    gt_traj.append(tuple(np.asarray(gt_pose[:3], dtype=np.float64)))
-
-                    _draw_pose_axes_isaac(
-                        debug_draw,
-                        your_pose,
-                        axis_len=0.02,
-                        width=2.0,
-                        color_x=(1.0, 0.0, 0.0, 1.0),
-                        color_y=(0.0, 1.0, 0.0, 1.0),
-                        color_z=(0.0, 0.0, 1.0, 1.0),
-                    )
-                    _draw_pose_axes_isaac(
-                        debug_draw,
-                        gt_pose,
-                        axis_len=0.02,
-                        width=1.0,
-                        color_x=(1.0, 0.5, 0.5, 1.0),
-                        color_y=(0.5, 1.0, 0.5, 1.0),
-                        color_z=(0.5, 0.5, 1.0, 1.0),
-                    )
-
-                    if len(pred_traj) >= 2:
-                        debug_draw.draw_lines([pred_traj[-2]], [pred_traj[-1]], [(1.0, 1.0, 0.0, 1.0)], [2.0])
-                    if len(gt_traj) >= 2:
-                        debug_draw.draw_lines([gt_traj[-2]], [gt_traj[-1]], [(0.0, 1.0, 1.0, 1.0)], [1.5])
+                # 視覺化部分已注解（需要 Isaac Sim）
+                # if visualize_pose and debug_draw is not None:
+                #     pred_traj.append(tuple(np.asarray(your_pose[:3], dtype=np.float64)))
+                #     gt_traj.append(tuple(np.asarray(gt_pose[:3], dtype=np.float64)))
+                #     _draw_pose_axes_isaac(debug_draw, your_pose, ...)
+                #     _draw_pose_axes_isaac(debug_draw, gt_pose, ...)
+                #     if len(pred_traj) >= 2:
+                #         debug_draw.draw_lines(...)
+                #     if len(gt_traj) >= 2:
+                #         debug_draw.draw_lines(...)
 
                 fk_error = np.linalg.norm(your_pose - np.asarray(gt_pose), ord=2)
                 if fk_error > FK_ERROR_THRESH:
@@ -436,24 +416,24 @@ def score_fk(student_fk_function, headless=False, visualize_pose=False):
                     jacobian_score[file_id] -= penalty
                     jacobian_error_cnt[file_id] += 1
 
-                world.step(render=not headless)
+                # world.step(render=not headless)  # Isaac Sim 步進，已注解
 
-            fk_score[file_id] = 0.0 if fk_score[file_id] < 0.0 else fk_score[file_id]
-            jacobian_score[file_id] = 0.0 if jacobian_score[file_id] < 0.0 else jacobian_score[file_id]
+            fk_score[file_id]       = max(0.0, fk_score[file_id])
+            jacobian_score[file_id] = max(0.0, jacobian_score[file_id])
 
-            score_msg = "- Testcase file : {}\n".format(test_case_name) + \
-                        "- Your Score Of Forward Kinematic : {:00.03f} / {:00.03f}, Error Count : {:4d} / {:4d}\n".format(
-                                fk_score[file_id], FK_SCORE_MAX / testcase_file_num, fk_error_cnt[file_id], cases_num) + \
-                        "- Your Score Of Jacobian Matrix   : {:00.03f} / {:00.03f}, Error Count : {:4d} / {:4d}\n".format(
-                                jacobian_score[file_id], JACOBIAN_SCORE_MAX / testcase_file_num, jacobian_error_cnt[file_id], cases_num)
-
+            score_msg = (
+                "- Testcase file : {}\n".format(test_case_name) +
+                "- Your Score Of Forward Kinematic : {:00.03f} / {:00.03f}, Error Count : {:4d} / {:4d}\n".format(
+                    fk_score[file_id], FK_SCORE_MAX / testcase_file_num,
+                    fk_error_cnt[file_id], cases_num) +
+                "- Your Score Of Jacobian Matrix   : {:00.03f} / {:00.03f}, Error Count : {:4d} / {:4d}\n".format(
+                    jacobian_score[file_id], JACOBIAN_SCORE_MAX / testcase_file_num,
+                    jacobian_error_cnt[file_id], cases_num)
+            )
             print(score_msg)
 
-        total_fk_score = 0.0
-        total_jacobian_score = 0.0
-        for file_id in range(testcase_file_num):
-            total_fk_score += fk_score[file_id]
-            total_jacobian_score += jacobian_score[file_id]
+        total_fk_score       = sum(fk_score)
+        total_jacobian_score = sum(jacobian_score)
 
         print("====================================================================================")
         print("- Your Total Score : {:00.03f} / {:00.03f}".format(
@@ -474,8 +454,8 @@ def score_fk(student_fk_function, headless=False, visualize_pose=False):
         print("--------------------------------------------------\n")
         raise
 
-    finally:
-        sim_app.close()
+    # finally:
+    #     sim_app.close()  # Isaac Sim 清理，已注解
 
 def main(args):
     """CLI entry point for FK homework evaluation.
